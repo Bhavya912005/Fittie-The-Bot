@@ -1,0 +1,177 @@
+const getFilteredPathName = () => {
+  let pathname = window.location.pathname
+  if (pathname.substring(pathname.length - 1) !== "/") pathname = pathname + "/"
+  return pathname
+}
+
+//============================ DEFAUlT CONFIGURATIONS ====================================
+
+const src = new URL(document.currentScript.getAttribute("src"))
+
+const chatbotUrl = window.location.origin === "file://" ? "http://localhost:3000" : src.origin
+
+const chatbotOrigin = new URL(chatbotUrl).origin
+
+const tenantId = document.currentScript.getAttribute("tenantId")
+const testBot = document.currentScript.getAttribute("testBot")
+const defaultOpen = document.currentScript.getAttribute("defaultOpen")
+const fullScreenBot = document.currentScript.getAttribute("fullScreenBot")
+const zIndex = document.currentScript.getAttribute("zIndex")
+const parentUrl = encodeURIComponent(window.location.href)
+const parentOrigin =
+  window.location.origin === "file://" ? chatbotUrl : window.location.origin
+const initialParentPathName = getFilteredPathName()
+
+const botMaxHeight = "816px"
+const botHeight = "95vh"
+const botWidth = "416px"
+const botRightPosition = "10px"
+const botBottomPosition = "10px"
+const initialTriggerHeight = "90px"
+
+const CHATBOT_EVENT_TYPE = Object.freeze({
+  MINIMIZE_CHATBOT: "minimizeChatbot",
+  MAXIMIZE_CHATBOT: "maximizeChatbot",
+  ROUTE_PATH_CHANGED: "routePathChanged",
+  MOVE_TO_LEFT: "moveToLeft"
+})
+
+//============================== DEVICE SIZE CHANGE LISTENERS ====================================
+
+let isBotOpen = defaultOpen === "true" || fullScreenBot === "true"
+
+function checkIsMobile() {
+  if (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    )
+  )
+    return true
+  return false
+}
+
+let resizeTimer = null
+let mobile = checkIsMobile()
+
+const handleResizeEvent = () => {
+  if (resizeTimer) clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => {
+    const isMobile = checkIsMobile()
+    const chatbotContainerNode = document.getElementById("chatbotContainer")
+    if (isBotOpen) {
+      chatbotContainerNode.style.width = isMobile ? "100vw" : botWidth
+      chatbotContainerNode.style.height = isMobile
+        ? `${window.innerHeight}px`
+        : botHeight
+    } else {
+      chatbotContainerNode.style.width = initialTriggerHeight
+      chatbotContainerNode.style.height = initialTriggerHeight
+    }
+
+    chatbotContainerNode.style.bottom = isMobile ? 0 : botBottomPosition
+    chatbotContainerNode.style.right = isMobile ? 0 : botRightPosition
+    if (mobile !== isMobile)
+      chatbotContainerNode.src = createIframeSrcUrl(isMobile)
+    mobile = isMobile
+  }, 500)
+}
+
+window.addEventListener("resize", handleResizeEvent)
+
+//============================== BROWSER ROUTE CHANGE LISTENER ====================================
+
+const sendUpdateToIframe = (type, payload = {}) => {
+  const chatbotContainerNode = document.getElementById("chatbotContainer")
+  chatbotContainerNode?.contentWindow.postMessage(
+    {
+      type,
+      payload,
+    },
+    chatbotOrigin
+  )
+}
+
+let currentPathName = initialParentPathName
+const observer = new MutationObserver(function (mutations) {
+  if (window.location.pathname !== currentPathName) {
+    if (window.location.pathname) {
+      let pathname = getFilteredPathName()
+      sendUpdateToIframe(CHATBOT_EVENT_TYPE.ROUTE_PATH_CHANGED, { pathname })
+    }
+    currentPathName = window.location.pathname
+  }
+})
+
+observer.observe(document, { subtree: true, childList: true })
+
+//============================ CHATBOT EVENTS LISTENERS ==================================
+if (window.addEventListener)
+  window.addEventListener("message", onMessage, false)
+else if (window.attachEvent) window.attachEvent("onmessage", onMessage, false)
+
+function onMessage(event) {
+  if (event.origin !== chatbotOrigin) return
+  const { type, payload } = event.data
+  if (type === CHATBOT_EVENT_TYPE.MINIMIZE_CHATBOT)
+    minimizeChatbotContainer(payload)
+  if (type === CHATBOT_EVENT_TYPE.MAXIMIZE_CHATBOT) {
+    if (payload?.reason === "fullScreenBot" && !fullScreenBot) {
+    } else maximizeChatbotContainer()
+  }
+  if(type === CHATBOT_EVENT_TYPE.MOVE_TO_LEFT){
+    if(payload.botPosition === 'left') {
+      const chatbotContainerNode = document.getElementById("chatbotContainer")
+      chatbotContainerNode.style.left = "10px"
+    }
+  }
+}
+
+//=============================== CHATBOT CREATION =======================================
+
+function createIframeSrcUrl(mobileView = mobile) {
+  let src = `${chatbotUrl}/?tenantId=${tenantId}&mobileView=${mobileView}`
+  if (testBot === "true") src = `${src}&testBot=${testBot}`
+  if (defaultOpen === "true") src = `${src}&defaultOpen=${defaultOpen}`
+  if (fullScreenBot === "true") src = `${src}&fullScreenBot=${fullScreenBot}`
+  src = `${src}&parentOrigin=${parentOrigin}&initialParentPathName=${initialParentPathName}&parentUrl=${parentUrl}`
+  return src
+}
+
+function minimizeChatbotContainer(data) {
+  const chatbotContainerNode = document.getElementById("chatbotContainer")
+  if (data?.height) chatbotContainerNode.style.height = data.height
+  if (data?.width) chatbotContainerNode.style.width = data.width
+  isBotOpen = false
+}
+
+function maximizeChatbotContainer(data) {
+  const chatbotContainerNode = document.getElementById("chatbotContainer")
+  chatbotContainerNode.style.height = mobile
+    ? `${window.innerHeight}px`
+    : botHeight
+  chatbotContainerNode.style.width = mobile ? "100vw" : botWidth
+  isBotOpen = true
+}
+
+const Iframe = document.createElement("iframe")
+Iframe.title = "chatbot"
+Iframe.src = createIframeSrcUrl()
+Iframe.id = "chatbotContainer"
+Iframe.style.backgroundColor = "transparent"
+Iframe.style.border = "none"
+Iframe.style.position = "fixed"
+Iframe.style.display = "block"
+Iframe.style.bottom = mobile ? "0px" : botBottomPosition
+Iframe.style.right = mobile ? "0px" : botRightPosition
+Iframe.style.width = initialTriggerHeight
+Iframe.style.height = initialTriggerHeight
+Iframe.style.maxHeight = mobile ? "100vh" : botMaxHeight
+Iframe.style.zIndex = !isNaN(parseInt(zIndex)) ? parseInt(zIndex) : 99999
+
+document.body.appendChild(Iframe)
+
+//=============================== CLEAR UP =======================================
+
+window.addEventListener("beforeunload", (event) => {
+  observer.disconnect()
+})
